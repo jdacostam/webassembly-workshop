@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calculadora Panadera — WebAssembly</title>
+
+  <!--
+    ================================================================
+     TALLER WEBASSEMBLY — Versión WASM
+     Archivo: bakery_wasm/index.html
+
+     ESTRUCTURA DEL PROYECTO:
+       bakery_wasm/
+         index.html        ← este archivo
+         bakery_calc.wasm  ← compilado desde bakery_calc.c
+
+     CÓMO COMPILAR EL .WASM:
+       emcc ../bakery_calc.c -O2 -o bakery_calc.wasm \
+            --no-entry \
+            -s EXPORTED_FUNCTIONS='["_calc_add","_calc_sub","_calc_mul","_calc_div","_benchmark"]'
+
+     CÓMO EJECUTAR:
+       python3 -m http.server 8080
+       # abrir: http://localhost:8080/bakery_wasm/index.html
+    ================================================================
+  -->
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg:        #0f1117;
+      --surface:   #181c25;
+      --border:    #2a2f3e;
+      --accent:    #00e5a0;
+      --accent-dim:#00b37a;
+      --text:      #e8eaf0;
+      --muted:     #6b7080;
+      --danger:    #ff5f57;
+      --warn:      #f5a623;
+      --mono:      'JetBrains Mono', monospace;
+      --display:   'Syne', sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      min-height: 100vh;
+      padding: 2rem 1rem;
+    }
+
+    /* ── Layout ──────────────────────────────────────── */
+    .page { max-width: 640px; margin: 0 auto; }
+
+    header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 2rem;
+    }
+
+    .logo-block h1 {
+      font-family: var(--display);
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--accent);
+    }
+
+    .logo-block p {
+      font-size: 0.7rem;
+      color: var(--muted);
+      margin-top: 2px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .tech-badge {
+      font-size: 0.65rem;
+      padding: 4px 10px;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      border-radius: 999px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    /* ── Status bar ──────────────────────────────────── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-bottom: 1.5rem;
+    }
+
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .status-dot.loading { background: var(--warn); animation: pulse 1s infinite; }
+    .status-dot.ready   { background: var(--accent); }
+    .status-dot.error   { background: var(--danger); }
+
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    /* ── Card ────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin-bottom: 1rem;
+    }
+
+    .card-title {
+      font-size: 0.65rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+
+    /* ── Calculator display ──────────────────────────── */
+    .calc-display {
+      background: #0a0d12;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      text-align: right;
+    }
+
+    .calc-expr {
+      font-size: 0.75rem;
+      color: var(--muted);
+      min-height: 1rem;
+      margin-bottom: 4px;
+    }
+
+    .calc-result {
+      font-size: 2rem;
+      font-weight: 600;
+      color: var(--text);
+      word-break: break-all;
+    }
+
+    .calc-time {
+      font-size: 0.65rem;
+      color: var(--accent);
+      margin-top: 6px;
+      min-height: 1rem;
+    }
+
+    /* ── Calculator buttons ──────────────────────────── */
+    .calc-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+    }
+
+    .btn {
+      padding: 14px 8px;
+      font-family: var(--mono);
+      font-size: 0.9rem;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.1s, transform 0.08s;
+      background: #1e2330;
+      color: var(--text);
+    }
+
+    .btn:hover  { background: #262c3d; }
+    .btn:active { transform: scale(0.95); }
+
+    .btn.op  { background: #1a2b25; color: var(--accent); border-color: var(--accent-dim); }
+    .btn.op:hover { background: #203323; }
+    .btn.eq  { background: var(--accent); color: #0a0d12; border-color: var(--accent); }
+    .btn.eq:hover { background: var(--accent-dim); }
+    .btn.cl  { color: var(--danger); border-color: #3a1a1a; }
+    .btn.cl:hover { background: #2a1515; }
+    .btn.span2 { grid-column: span 2; }
+    .btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    /* ── Benchmark section ───────────────────────────── */
+    .bench-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .bench-controls label {
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+
+    .bench-controls input[type="range"] {
+      flex: 1;
+      min-width: 120px;
+      accent-color: var(--accent);
+    }
+
+    .bench-controls span {
+      font-size: 0.72rem;
+      color: var(--text);
+      min-width: 70px;
+      text-align: right;
+    }
+
+    .btn-run {
+      width: 100%;
+      padding: 12px;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      font-weight: 600;
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      cursor: pointer;
+      letter-spacing: 0.06em;
+      transition: background 0.15s;
+    }
+
+    .btn-run:hover   { background: #0a2018; }
+    .btn-run:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .bench-result {
+      margin-top: 1rem;
+      padding: 1rem;
+      background: #0a0d12;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.75rem;
+      line-height: 1.8;
+      min-height: 60px;
+      color: var(--muted);
+    }
+
+    .bench-result .highlight { color: var(--accent); font-weight: 600; }
+    .bench-result .label     { color: var(--text); }
+
+    /* ── Code hint ───────────────────────────────────── */
+    .code-hint {
+      background: #0a0d12;
+      border-left: 3px solid var(--accent-dim);
+      padding: 12px 14px;
+      border-radius: 0 8px 8px 0;
+      font-size: 0.7rem;
+      line-height: 1.8;
+      color: var(--muted);
+      margin-top: 1rem;
+    }
+
+    .code-hint .kw  { color: #79b8ff; }
+    .code-hint .fn  { color: var(--accent); }
+    .code-hint .cm  { color: #4a5060; }
+    .code-hint .str { color: var(--warn); }
+
+    footer {
+      margin-top: 2rem;
+      font-size: 0.65rem;
+      color: var(--muted);
+      text-align: center;
+      line-height: 1.8;
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <div class="logo-block">
+      <h1>🍞 Bakery Calc</h1>
+      <p>Taller WebAssembly — versión Wasm</p>
+    </div>
+    <span class="tech-badge">WebAssembly</span>
+  </header>
+
+  <!-- Estado de carga del módulo Wasm -->
+  <div class="status-bar">
+    <div class="status-dot loading" id="status-dot"></div>
+    <span id="status-text">Cargando módulo WebAssembly…</span>
+  </div>
+
+  <!-- ── CALCULADORA ──────────────────────────────────── -->
+  <div class="card">
+    <div class="card-title">// calculadora — operaciones básicas</div>
+
+    <div class="calc-display">
+      <div class="calc-expr" id="expr"></div>
+      <div class="calc-result" id="result">0</div>
+      <div class="calc-time"  id="op-time">&nbsp;</div>
+    </div>
+
+    <div class="calc-grid">
+      <button class="btn cl"  onclick="clearCalc()">C</button>
+      <button class="btn cl"  onclick="backspace()">⌫</button>
+      <button class="btn op"  onclick="setOp('%')">%</button>
+      <button class="btn op"  onclick="setOp('/')">÷</button>
+
+      <button class="btn" onclick="digit('7')">7</button>
+      <button class="btn" onclick="digit('8')">8</button>
+      <button class="btn" onclick="digit('9')">9</button>
+      <button class="btn op" onclick="setOp('*')">×</button>
+
+      <button class="btn" onclick="digit('4')">4</button>
+      <button class="btn" onclick="digit('5')">5</button>
+      <button class="btn" onclick="digit('6')">6</button>
+      <button class="btn op" onclick="setOp('-')">−</button>
+
+      <button class="btn" onclick="digit('1')">1</button>
+      <button class="btn" onclick="digit('2')">2</button>
+      <button class="btn" onclick="digit('3')">3</button>
+      <button class="btn op" onclick="setOp('+')">+</button>
+
+      <button class="btn span2" onclick="digit('0')">0</button>
+      <button class="btn" onclick="digit('.')">.</button>
+      <button class="btn eq"   onclick="calculate()">=</button>
+    </div>
+  </div>
+
+  <!-- ── BENCHMARK ──────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-title">// benchmark — medir rendimiento</div>
+
+    <div class="bench-controls">
+      <label for="iter-slider">Iteraciones:</label>
+      <input type="range" id="iter-slider" min="1" max="9" value="7" step="1"
+             oninput="updateIterLabel(this.value)" />
+      <span id="iter-label">10,000,000</span>
+    </div>
+
+    <button class="btn-run" id="bench-btn" onclick="runBenchmark()">
+      ▶ Ejecutar benchmark (Wasm)
+    </button>
+
+    <div class="bench-result" id="bench-out">
+      Ajusta las iteraciones y presiona ejecutar…
+    </div>
+
+    <!--
+      ZONA DE MODIFICACIÓN PARA EL TALLER
+      Para cambiar qué operación se mide, edita benchmark() en bakery_calc.c
+      y recompila. Luego recarga esta página.
+    -->
+    <div class="code-hint">
+      Para que puedas ejecutar el benchmark con diferentes cargas, la función benchmark() en C tiene un bucle que puedes modificar.
+      Busca el siguiente fragmento de código en bakery_calc.c y cambia la línea marcada para probar diferentes operaciones:
+      <span class="cm">/* bakery_calc.c — función de benchmark */</span><br>
+      <span class="kw">double</span> <span class="fn">benchmark</span>(<span class="kw">int</span> iterations) {<br>
+      &nbsp;&nbsp;<span class="kw">double</span> acc = <span class="str">0.0</span>;<br>
+      &nbsp;&nbsp;<span class="kw">for</span> (<span class="kw">int</span> i = <span class="str">0</span>; i &lt; iterations; i++) {<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span class="cm">/*  ← MODIFICA ESTA LÍNEA PARA HACER EL BENCHMARK EN LOS DIFERENTES NIVELES  */</span><br>
+      &nbsp;&nbsp;}<br>
+      &nbsp;&nbsp;<span class="kw">return</span> acc;<br>
+      }
+      recuerda que debes recompilar el .wasm después de hacer cambios en el código C para que se reflejen aquí.
+    </div>
+  </div>
+
+  <footer>
+    Taller WebAssembly · las funciones se ejecutan en un módulo .wasm compilado desde C<br>
+        Compara con <a href="index.html"><strong>index.html</strong></a>
+  </footer>
+</div>
+
+<script>
+  /*
+   * ================================================================
+   *  CARGA DEL MÓDULO WEBASSEMBLY
+   *  ================================================================
+   *  WebAssembly.instantiateStreaming() es la forma más eficiente:
+   *  compila y enlaza el .wasm directamente desde el stream HTTP
+   *  sin esperar a que el buffer completo esté en memoria.
+   *
+   *  El objeto `instance.exports` contiene todas las funciones
+   *  marcadas con EMSCRIPTEN_KEEPALIVE en el código C.
+   * ================================================================
+   */
+  let wasm = null;  // Referencia al módulo Wasm cargado
+
+  const dot  = document.getElementById('status-dot');
+  const stxt = document.getElementById('status-text');
+
+  async function loadWasm() {
+    try {
+      /*
+       * ZONA DE MODIFICACIÓN:
+       * Si cambias el nombre del archivo .wasm, actualiza esta ruta.
+       */
+      const response = await fetch('bakery_calc.wasm');
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      /*
+       * WebAssembly.instantiateStreaming compila el .wasm mientras
+       * lo descarga (streaming compilation). El segundo argumento
+       * es el objeto de "imports" — funciones JS que el módulo Wasm
+       * puede llamar. Aquí no necesitamos ninguna.
+       */
+      const { instance } = await WebAssembly.instantiateStreaming(
+        response,
+        { env: {} }   /* imports vacíos para este módulo simple */
+      );
+
+      wasm = instance.exports;  /* { calc_add, calc_sub, calc_mul, calc_div, benchmark } */
+
+      dot.className  = 'status-dot ready';
+      stxt.textContent = `Módulo Wasm listo · funciones: ${Object.keys(wasm).join(', ')}`;
+
+      /* Habilitar botones que dependen del módulo */
+      document.querySelectorAll('.btn, .btn-run').forEach(b => b.disabled = false);
+
+    } catch (err) {
+      dot.className  = 'status-dot error';
+      stxt.textContent = `Error al cargar Wasm: ${err.message} — ¿está corriendo el servidor HTTP?`;
+      console.error('Wasm load error:', err);
+    }
+  }
+
+  /* Deshabilitar botones mientras carga */
+  document.querySelectorAll('.btn, .btn-run').forEach(b => b.disabled = true);
+  loadWasm();
+
+
+  /* ================================================================
+   *  LÓGICA DE LA CALCULADORA
+   * ================================================================
+   *  El estado se guarda en tres variables:
+   *    operandA — primer número ingresado
+   *    operator — operador seleccionado (+, -, *, /)
+   *    input    — número que se está escribiendo actualmente
+   * ================================================================ */
+  let operandA = null;
+  let operator  = null;
+  let input     = '0';
+  let justCalc  = false;
+
+  function updateDisplay() {
+    document.getElementById('result').textContent = input;
+  }
+
+  function digit(d) {
+    if (justCalc) { input = '0'; justCalc = false; }
+    if (d === '.' && input.includes('.')) return;
+    input = (input === '0' && d !== '.') ? d : input + d;
+    updateDisplay();
+  }
+
+  function backspace() {
+    input = input.length > 1 ? input.slice(0, -1) : '0';
+    updateDisplay();
+  }
+
+  function setOp(op) {
+    operandA = parseFloat(input);
+    operator  = op;
+    input     = '0';
+    const opSymbol = { '+':'+', '-':'−', '*':'×', '/':'÷', '%':'%' }[op] || op;
+    document.getElementById('expr').textContent = `${operandA} ${opSymbol}`;
+  }
+
+  function clearCalc() {
+    operandA = null; operator = null; input = '0'; justCalc = false;
+    document.getElementById('expr').textContent = '';
+    document.getElementById('op-time').textContent = '';
+    updateDisplay();
+  }
+
+  function calculate() {
+    if (operandA === null || !operator || !wasm) return;
+
+    const b = parseFloat(input);
+    const t0 = performance.now();
+
+    let result;
+    if      (operator === '+') result = wasm.calc_add(operandA, b);
+    else if (operator === '-') result = wasm.calc_sub(operandA, b);
+    else if (operator === '*') result = wasm.calc_mul(operandA, b);
+    else if (operator === '/') result = wasm.calc_div(operandA, b);
+    else if (operator === '%') result = wasm.calc_div(operandA, 100) * b;
+
+    const elapsed = performance.now() - t0;  /* tiempo en milisegundos */
+
+    /* Mostrar resultado */
+    const rounded = parseFloat(result.toFixed(8));
+    document.getElementById('expr').textContent = `${operandA} ${operator} ${b} =`;
+    document.getElementById('result').textContent = rounded;
+    document.getElementById('op-time').textContent =
+      `⏱ Wasm: ${elapsed < 0.001 ? '<0.001' : elapsed.toFixed(4)} ms`;
+
+    input = String(rounded);
+    justCalc = true;
+  }
+
+
+  /* ================================================================
+   *  BENCHMARK
+   * ================================================================
+   *  Llama a la función benchmark() compilada en C, que ejecuta
+   *  un bucle con `iterations` operaciones.
+   *
+   *  Se usa performance.now() (resolución ~0.1ms) para medir
+   *  el tiempo de ejecución desde JavaScript.
+   *
+   *  ZONA DE MODIFICACIÓN:
+   *    - Cambia `iterations` para probar con más o menos carga
+   *    - Compara con la versión JS abriendo wasm_index.html
+   * ================================================================ */
+  const iterSteps = [1e4, 5e4, 1e5, 5e5, 1e6, 5e6, 1e7, 5e7, 1e8];
+
+  function updateIterLabel(val) {
+    const n = iterSteps[parseInt(val) - 1];
+    document.getElementById('iter-label').textContent = n.toLocaleString('es-CO');
+  }
+
+  function runBenchmark() {
+    if (!wasm) { alert('El módulo Wasm aún no está listo.'); return; }
+
+    const btn = document.getElementById('bench-btn');
+    const out  = document.getElementById('bench-out');
+    const n    = iterSteps[parseInt(document.getElementById('iter-slider').value) - 1];
+
+    btn.disabled = true;
+    btn.textContent = '⏳ Ejecutando…';
+    out.innerHTML = 'Ejecutando benchmark…';
+
+    /*
+     * setTimeout(..., 0) cede el hilo al navegador para que pueda
+     * actualizar el DOM antes de bloquear con el benchmark.
+     */
+    setTimeout(() => {
+      try {
+        const t0 = performance.now();
+
+        /*
+         * LLAMADA AL MÓDULO WASM
+         * La función benchmark() en C ejecuta el bucle completo
+         * en bytecode nativo dentro del motor del navegador.
+         */
+        const resultSum = wasm.benchmark(n);
+
+        const elapsed = performance.now() - t0;
+        const opsPerMs = (n / elapsed).toFixed(0);
+
+        out.innerHTML =
+          `<span class="label">Iteraciones:</span>  <span class="highlight">${n.toLocaleString('es-CO')}</span>\n` +
+          `<span class="label">Tiempo Wasm:  </span> <span class="highlight">${elapsed.toFixed(3)} ms</span>\n` +
+          `<span class="label">Ops/ms:       </span> <span class="highlight">${parseInt(opsPerMs).toLocaleString('es-CO')}</span>\n` +
+          `<span class="label">Suma control: </span> ${resultSum.toExponential(4)}  ← evita que el compilador omita el bucle`;
+
+      } catch (e) {
+        out.textContent = `Error en benchmark: ${e.message}`;
+      }
+
+      btn.disabled = false;
+      btn.textContent = '▶ Ejecutar benchmark (Wasm)';
+    }, 0);
+  }
+
+  /* Inicializar label del slider */
+  updateIterLabel(document.getElementById('iter-slider').value);
+</script>
+</body>
+</html>

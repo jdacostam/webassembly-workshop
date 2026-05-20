@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calculadora Panadera — JavaScript</title>
+
+  <!--
+    ================================================================
+     TALLER WEBASSEMBLY — Versión JavaScript puro
+     Archivo: bakery_js/index.html
+
+     Este archivo NO necesita servidor HTTP — puedes abrirlo
+     directamente con doble clic (file://) porque no carga
+     ningún recurso externo.
+
+     OBJETIVO DEL TALLER:
+       1. Ejecutar el benchmark aquí y anotar el tiempo.
+       2. Abrir bakery_wasm/index.html (con servidor HTTP).
+       3. Ejecutar el mismo benchmark allá.
+       4. Comparar los resultados.
+    ================================================================
+  -->
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg:        #0f1117;
+      --surface:   #181c25;
+      --border:    #2a2f3e;
+      --accent:    #4d9eff;      /* Azul para JS, verde para Wasm */
+      --accent-dim:#2e6fc4;
+      --text:      #e8eaf0;
+      --muted:     #6b7080;
+      --danger:    #ff5f57;
+      --warn:      #f5a623;
+      --mono:      'JetBrains Mono', monospace;
+      --display:   'Syne', sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      min-height: 100vh;
+      padding: 2rem 1rem;
+    }
+
+    .page { max-width: 640px; margin: 0 auto; }
+
+    header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 2rem;
+    }
+
+    .logo-block h1 {
+      font-family: var(--display);
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--accent);
+    }
+
+    .logo-block p {
+      font-size: 0.7rem;
+      color: var(--muted);
+      margin-top: 2px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .tech-badge {
+      font-size: 0.65rem;
+      padding: 4px 10px;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      border-radius: 999px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin-bottom: 1rem;
+    }
+
+    .card-title {
+      font-size: 0.65rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+
+    .calc-display {
+      background: #0a0d12;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      text-align: right;
+    }
+
+    .calc-expr   { font-size: 0.75rem; color: var(--muted); min-height: 1rem; margin-bottom: 4px; }
+    .calc-result { font-size: 2rem; font-weight: 600; color: var(--text); word-break: break-all; }
+    .calc-time   { font-size: 0.65rem; color: var(--accent); margin-top: 6px; min-height: 1rem; }
+
+    .calc-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+
+    .btn {
+      padding: 14px 8px;
+      font-family: var(--mono);
+      font-size: 0.9rem;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.1s, transform 0.08s;
+      background: #1e2330;
+      color: var(--text);
+    }
+    .btn:hover  { background: #262c3d; }
+    .btn:active { transform: scale(0.95); }
+    .btn.op  { background: #101e35; color: var(--accent); border-color: var(--accent-dim); }
+    .btn.op:hover { background: #162540; }
+    .btn.eq  { background: var(--accent); color: #0a0d12; border-color: var(--accent); }
+    .btn.eq:hover { background: var(--accent-dim); }
+    .btn.cl  { color: var(--danger); border-color: #3a1a1a; }
+    .btn.cl:hover { background: #2a1515; }
+    .btn.span2 { grid-column: span 2; }
+
+    .bench-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+    .bench-controls label { font-size: 0.72rem; color: var(--muted); }
+    .bench-controls input[type="range"] { flex: 1; min-width: 120px; accent-color: var(--accent); }
+    .bench-controls span  { font-size: 0.72rem; color: var(--text); min-width: 70px; text-align: right; }
+
+    .btn-run {
+      width: 100%;
+      padding: 12px;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      font-weight: 600;
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      cursor: pointer;
+      letter-spacing: 0.06em;
+      transition: background 0.15s;
+    }
+    .btn-run:hover    { background: #0c1626; }
+    .btn-run:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .bench-result {
+      margin-top: 1rem;
+      padding: 1rem;
+      background: #0a0d12;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.75rem;
+      line-height: 1.8;
+      min-height: 60px;
+      color: var(--muted);
+      white-space: pre;
+    }
+    .bench-result .highlight { color: var(--accent); font-weight: 600; }
+    .bench-result .label     { color: var(--text); }
+
+    .code-hint {
+      background: #0a0d12;
+      border-left: 3px solid var(--accent-dim);
+      padding: 12px 14px;
+      border-radius: 0 8px 8px 0;
+      font-size: 0.7rem;
+      line-height: 1.8;
+      color: var(--muted);
+      margin-top: 1rem;
+    }
+    .code-hint .kw  { color: #79b8ff; }
+    .code-hint .fn  { color: var(--accent); }
+    .code-hint .cm  { color: #4a5060; }
+    .code-hint .str { color: var(--warn); }
+
+    /* Cuadro comparativo — aparece tras ejecutar benchmark */
+    .compare-box {
+      display: none;
+      margin-top: 1rem;
+      padding: 1rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.72rem;
+      line-height: 1.9;
+    }
+    .compare-box h3 {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .compare-row { display: flex; justify-content: space-between; }
+    .compare-row .name  { color: var(--text); }
+    .compare-row .val   { font-weight: 600; }
+    .compare-row .val.blue  { color: var(--accent); }
+    .compare-row .val.green { color: #00e5a0; }
+
+    footer {
+      margin-top: 2rem;
+      font-size: 0.65rem;
+      color: var(--muted);
+      text-align: center;
+      line-height: 1.8;
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <div class="logo-block">
+      <h1>🍞 Bakery Calc</h1>
+      <p>Taller WebAssembly — versión JavaScript</p>
+    </div>
+    <span class="tech-badge">JavaScript</span>
+  </header>
+
+  <!-- ── CALCULADORA ──────────────────────────────────── -->
+  <div class="card">
+    <div class="card-title">// calculadora — operaciones básicas</div>
+
+    <div class="calc-display">
+      <div class="calc-expr"   id="expr"></div>
+      <div class="calc-result" id="result">0</div>
+      <div class="calc-time"   id="op-time">&nbsp;</div>
+    </div>
+
+    <div class="calc-grid">
+      <button class="btn cl"   onclick="clearCalc()">C</button>
+      <button class="btn cl"   onclick="backspace()">⌫</button>
+      <button class="btn op"   onclick="setOp('%')">%</button>
+      <button class="btn op"   onclick="setOp('/')">÷</button>
+
+      <button class="btn" onclick="digit('7')">7</button>
+      <button class="btn" onclick="digit('8')">8</button>
+      <button class="btn" onclick="digit('9')">9</button>
+      <button class="btn op"   onclick="setOp('*')">×</button>
+
+      <button class="btn" onclick="digit('4')">4</button>
+      <button class="btn" onclick="digit('5')">5</button>
+      <button class="btn" onclick="digit('6')">6</button>
+      <button class="btn op"   onclick="setOp('-')">−</button>
+
+      <button class="btn" onclick="digit('1')">1</button>
+      <button class="btn" onclick="digit('2')">2</button>
+      <button class="btn" onclick="digit('3')">3</button>
+      <button class="btn op"   onclick="setOp('+')">+</button>
+
+      <button class="btn span2" onclick="digit('0')">0</button>
+      <button class="btn"       onclick="digit('.')">.</button>
+      <button class="btn eq"    onclick="calculate()">=</button>
+    </div>
+  </div>
+
+
+  <!-- ── BENCHMARK ──────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-title">// benchmark — medir rendimiento JS</div>
+
+    <div class="bench-controls">
+      <label for="iter-slider">Iteraciones:</label>
+      <input type="range" id="iter-slider" min="1" max="9" value="7" step="1"
+             oninput="updateIterLabel(this.value)" />
+      <span id="iter-label">10,000,000</span>
+    </div>
+
+    <button class="btn-run" id="bench-btn" onclick="runBenchmark()">
+      ▶ Ejecutar benchmark (JS)
+    </button>
+
+    <div class="bench-result" id="bench-out">
+      Ajusta las iteraciones y presiona ejecutar…
+    </div>
+
+    <!--
+      ZONA DE MODIFICACIÓN PARA EL TALLER
+      Cambia la operación dentro del bucle en la función jsBenchmark()
+      al final de este archivo, y compara el tiempo con la versión Wasm.
+    -->
+    <div class="code-hint">
+      <span class="cm">/* bakery_js/index.html — función de benchmark JS */</span><br>
+      <span class="kw">function</span> <span class="fn">jsBenchmark</span>(iterations) {<br>
+      &nbsp;&nbsp;<span class="kw">let</span> acc = <span class="str">0</span>;<br>
+      &nbsp;&nbsp;<span class="kw">for</span> (<span class="kw">let</span> i = <span class="str">0</span>; i &lt; iterations; i++) {<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span class="cm">/* ← MODIFICA ESTA LÍNEA PARA HACER EL BENCHMARK EN LOS DIFERENTES NIVELES */</span><br>
+    
+      &nbsp;&nbsp;}<br>
+      &nbsp;&nbsp;<span class="kw">return</span> acc;<br>
+      }
+    </div>
+
+    
+    <div class="compare-box" id="compare-box">
+      <h3>comparación de tiempos</h3>
+      <div class="compare-row">
+        <span class="name">JavaScript (este archivo)</span>
+        <span class="val blue" id="cmp-js">—</span>
+      </div>
+      <div class="compare-row">
+        <span class="name">WebAssembly (bakery_wasm/)</span>
+        <span class="val green" id="cmp-wasm">ejecuta allá y anota →</span>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ── NOTAS PEDAGÓGICAS ─────────────────────────────── -->
+  <div class="card">
+    <div class="card-title">// ¿por qué a veces JS y Wasm son similares?</div>
+    <div style="font-size:0.75rem; line-height:1.9; color:var(--muted);">
+      <p style="margin-bottom:0.75rem;">
+        JavaScript moderno tiene un motor avanzado que optimiza
+        el código en tiempo de ejecución. Para operaciones simples como
+        suma de enteros, puede ser tan eficiente que
+        WebAssembly no muestra una ventaja significativa.
+      </p>
+      <p style="margin-bottom:0.75rem;">
+        <span style="color:var(--text)">Dónde sí gana WebAssembly:</span><br>
+        · Cómputo complejo con tipos estrictos (sin boxing de números)<br>
+        · Código portado desde C/C++/Rust ya optimizado<br>
+        · Arranque predecible: Wasm no tiene fase de "calentamiento" JIT<br>
+        · Operaciones SIMD (múltiples datos en paralelo)<br>
+        · Algoritmos que el JIT no logra inferir los tipos
+      </p>
+      <p>
+        <span style="color:var(--text)">Regla práctica:</span>
+        usa JS para lógica de UI y APIs REST.
+        Usa Wasm cuando tengas código C/Rust existente o necesites
+        rendimiento predecible y portátil.
+      </p>
+    </div>
+  </div>
+
+  <footer>
+    Taller WebAssembly · versión JavaScript puro<br>
+    Compara con <a href="wasm_index.html"><strong>wasm_index.html</strong></a>
+  </footer>
+</div>
+
+<script>
+  
+  const BakeryCalc = {
+
+    add(a, b)    { return a + b; },
+    sub(a, b)    { return a - b; },
+    mul(a, b)    { return a * b; },
+    div(a, b)    { return b === 0 ? 0 : a / b; },
+
+
+  };
+
+
+  /* ================================================================
+   *  CALCULADORA
+   * ================================================================ */
+  let operandA = null;
+  let operator  = null;
+  let input     = '0';
+  let justCalc  = false;
+
+  function updateDisplay() {
+    document.getElementById('result').textContent = input;
+  }
+
+  function digit(d) {
+    if (justCalc) { input = '0'; justCalc = false; }
+    if (d === '.' && input.includes('.')) return;
+    input = (input === '0' && d !== '.') ? d : input + d;
+    updateDisplay();
+  }
+
+  function backspace() {
+    input = input.length > 1 ? input.slice(0, -1) : '0';
+    updateDisplay();
+  }
+
+  function setOp(op) {
+    operandA = parseFloat(input);
+    operator  = op;
+    input     = '0';
+    const sym = { '+':'+', '-':'−', '*':'×', '/':'÷', '%':'%' }[op] || op;
+    document.getElementById('expr').textContent = `${operandA} ${sym}`;
+  }
+
+  function clearCalc() {
+    operandA = null; operator = null; input = '0'; justCalc = false;
+    document.getElementById('expr').textContent = '';
+    document.getElementById('op-time').textContent = '';
+    updateDisplay();
+  }
+
+  function calculate() {
+    if (operandA === null || !operator) return;
+
+    const b = parseFloat(input);
+
+    /*
+     * MEDICIÓN DE TIEMPO — performance.now()
+     * ------------------------------------------------------
+     * performance.now() devuelve microsegundos con resolución
+     * de ~0.1ms (los navegadores la degradan por seguridad).
+     * Para operaciones individuales el tiempo será <0.001ms
+     * — la diferencia JS vs Wasm se ve en el benchmark masivo.
+     */
+    const t0 = performance.now();
+
+    let result;
+    if      (operator === '+') result = BakeryCalc.add(operandA, b);
+    else if (operator === '-') result = BakeryCalc.sub(operandA, b);
+    else if (operator === '*') result = BakeryCalc.mul(operandA, b);
+    else if (operator === '/') result = BakeryCalc.div(operandA, b);
+    else if (operator === '%') result = BakeryCalc.div(operandA, 100) * b;
+
+    const elapsed = performance.now() - t0;
+
+    const rounded = parseFloat(result.toFixed(8));
+    document.getElementById('expr').textContent = `${operandA} ${operator} ${b} =`;
+    document.getElementById('result').textContent = rounded;
+    document.getElementById('op-time').textContent =
+      `⏱ JS: ${elapsed < 0.00001 ? '<0.00001' : elapsed.toFixed(6)} ms`;
+
+    input = String(rounded);
+    justCalc = true;
+  }
+
+
+  /* ================================================================
+   *  FUNCIÓN DE BENCHMARK
+   * ================================================================
+   *  ESTA ES LA FUNCIÓN QUE LOS ASISTENTES DEBEN MODIFICAR.
+   *  Cambia la operación dentro del bucle y compara con la versión
+   *  equivalente en bakery_calc.c
+   *
+   *  Niveles de dificultad sugeridos:
+   *
+   *  Nivel 1 — suma de enteros (más fácil de optimizar para JIT):
+   *    acc += i + i;
+   *
+   *  Nivel 2 — raíz cuadrada (más costosa, JIT no la elimina):
+   *    acc += Math.sqrt(i);
+   *
+   *  Nivel 3 — acceso a array (memoria, Wasm puede ganar más):
+   *    const arr = new Float64Array(1024);
+   *    for (let j = 0; j < 1024; j++) arr[j] = j * 0.5;
+   *    acc += arr[i % 1024];
+   * ================================================================ */
+  function jsBenchmark(iterations) {
+    let acc = 0;
+    for (let i = 0; i < iterations; i++) {
+
+      /* ===== MODIFICA ESTA LÍNEA PARA EL TALLER ===== */
+      acc += i + i;
+
+
+
+    }
+    return acc; 
+  }
+
+
+  /* ----------------------------------------------------------------
+   *  Controlador del botón de benchmark
+   * ---------------------------------------------------------------- */
+  const iterSteps = [1e4, 5e4, 1e5, 5e5, 1e6, 5e6, 1e7, 5e7, 1e8];
+
+  function updateIterLabel(val) {
+    const n = iterSteps[parseInt(val) - 1];
+    document.getElementById('iter-label').textContent = n.toLocaleString('es-CO');
+  }
+
+  function runBenchmark() {
+    const btn = document.getElementById('bench-btn');
+    const out  = document.getElementById('bench-out');
+    const n    = iterSteps[parseInt(document.getElementById('iter-slider').value) - 1];
+
+    btn.disabled = true;
+    btn.textContent = '⏳ Ejecutando…';
+    out.textContent = 'Ejecutando benchmark…';
+
+    setTimeout(() => {
+      const t0 = performance.now();
+
+      /*
+       * LLAMADA AL BENCHMARK JS
+       * Comparar este tiempo con el del módulo Wasm.
+       */
+      const resultSum = jsBenchmark(n);
+
+      const elapsed = performance.now() - t0;
+      const opsPerMs = (n / elapsed).toFixed(0);
+
+      out.innerHTML =
+        `<span class="label">Iteraciones:</span>  <span class="highlight">${n.toLocaleString('es-CO')}</span>\n` +
+        `<span class="label">Tiempo JS:    </span> <span class="highlight">${elapsed.toFixed(3)} ms</span>\n` +
+        `<span class="label">Ops/ms:       </span> <span class="highlight">${parseInt(opsPerMs).toLocaleString('es-CO')}</span>\n` +
+        `<span class="label">Suma control: </span> ${resultSum.toExponential(4)}  ← evita que el JIT omita el bucle`;
+
+      /* Mostrar cuadro comparativo y guardar tiempo */
+      const box = document.getElementById('compare-box');
+      box.style.display = 'block';
+      document.getElementById('cmp-js').textContent = elapsed.toFixed(3) + ' ms';
+
+      btn.disabled = false;
+      btn.textContent = '▶ Ejecutar benchmark (JS)';
+    }, 0);
+  }
+
+  /* Inicializar label del slider */
+  updateIterLabel(document.getElementById('iter-slider').value);
+</script>
+</body>
+</html>
