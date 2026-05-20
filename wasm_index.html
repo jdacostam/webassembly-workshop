@@ -5,26 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Calculadora Panadera — WebAssembly</title>
 
-  <!--
-    ================================================================
-     TALLER WEBASSEMBLY — Versión WASM
-     Archivo: bakery_wasm/index.html
 
-     ESTRUCTURA DEL PROYECTO:
-       bakery_wasm/
-         index.html        ← este archivo
-         bakery_calc.wasm  ← compilado desde bakery_calc.c
-
-     CÓMO COMPILAR EL .WASM:
-       emcc ../bakery_calc.c -O2 -o bakery_calc.wasm \
-            --no-entry \
-            -s EXPORTED_FUNCTIONS='["_calc_add","_calc_sub","_calc_mul","_calc_div","_benchmark"]'
-
-     CÓMO EJECUTAR:
-       python3 -m http.server 8080
-       # abrir: http://localhost:8080/bakery_wasm/index.html
-    ================================================================
-  -->
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;700&display=swap" rel="stylesheet">
